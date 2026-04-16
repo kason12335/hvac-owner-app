@@ -1,9 +1,12 @@
-const { neon } = require('@neondatabase/serverless');
+const { Pool } = require('pg');
 
-const sql = neon(process.env.DATABASE_URL);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 async function initDB() {
-  await sql`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS bookings (
       id BIGSERIAL PRIMARY KEY,
       first_name TEXT NOT NULL,
@@ -17,7 +20,7 @@ async function initDB() {
       status TEXT DEFAULT 'Pending',
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
-  `;
+  `);
 }
 
 module.exports = async function handler(req, res) {
@@ -30,20 +33,23 @@ module.exports = async function handler(req, res) {
     await initDB();
 
     if (req.method === 'GET') {
-      const bookings = await sql`SELECT * FROM bookings ORDER BY created_at DESC`;
-      return res.status(200).json(bookings);
+      const result = await pool.query('SELECT * FROM bookings ORDER BY created_at DESC');
+      return res.status(200).json(result.rows);
     }
 
     if (req.method === 'PATCH') {
       const { id } = req.query;
       const { status } = req.body;
-      const result = await sql`UPDATE bookings SET status = ${status} WHERE id = ${id} RETURNING *`;
-      return res.status(200).json({ success: true, booking: result[0] });
+      const result = await pool.query(
+        'UPDATE bookings SET status = $1 WHERE id = $2 RETURNING *',
+        [status, id]
+      );
+      return res.status(200).json({ success: true, booking: result.rows[0] });
     }
 
     if (req.method === 'DELETE') {
       const { id } = req.query;
-      await sql`DELETE FROM bookings WHERE id = ${id}`;
+      await pool.query('DELETE FROM bookings WHERE id = $1', [id]);
       return res.status(200).json({ success: true });
     }
 
